@@ -1,4 +1,4 @@
-// server.js
+// server.js - Versão Final, Corrigida para Erro de Embed (50035)
 
 const express = require('express');
 const axios = require('axios');
@@ -38,7 +38,6 @@ app.use((req, res, next) => {
 });
 
 // --- VARIÁVEIS DE DISCORD FIXAS ---
-// O canal do formulário é o canal de avaliação (variável)
 const REJECT_CHANNEL_ID = '1435430452318961764'; // Canal fixo de Reprovados
 const BASE_DISCORD_API_URL = 'https://discord.com/api/v10'; 
 
@@ -57,6 +56,13 @@ app.post('/api/discord-send', async (req, res) => {
     const uniqueId = Date.now().toString(36); 
     const { staffName, channelId, nickname, rpName, serial, motivoRejeicao, banDuration } = req.body;
     
+    // GARANTIA DE VALOR PARA O EMBED (CORRIGE ERRO 50035)
+    // Se o motivoRejeicao vier vazio, usamos uma string padrão.
+    const finalMotivoRejeicao = motivoRejeicao && motivoRejeicao.trim() !== '' 
+        ? motivoRejeicao 
+        : 'Motivo a ser preenchido pela Staff. O staff não anexou um motivo padrão.';
+
+
     // Validação do ID do Canal de Avaliação
     if (!channelId || isNaN(channelId) || channelId.length < 18) {
         return res.status(400).json({ 
@@ -77,7 +83,8 @@ app.post('/api/discord-send', async (req, res) => {
             fields: [
                 { name: 'Discord', value: nickname, inline: true },
                 { name: 'Serial MTA', value: '```' + serial + '```', inline: false },
-                { name: 'Motivo Padrão de Reprovação', value: motivoRejeicao || 'Motivo a ser preenchido pela Staff.', inline: false },
+                // USANDO A VARIÁVEL CORRIGIDA AQUI:
+                { name: 'Motivo Padrão de Reprovação', value: finalMotivoRejeicao, inline: false },
                 { name: 'Punição Padrão', value: banDuration, inline: true }
             ],
             footer: {
@@ -87,7 +94,7 @@ app.post('/api/discord-send', async (req, res) => {
         }],
         
         components: [
-            // Linha 1: APROVAR e REPROVAR (Menu)
+            // Linha 1: APROVAR e Opções de Reprovação
             {
                 type: 1, 
                 components: [
@@ -101,13 +108,13 @@ app.post('/api/discord-send', async (req, res) => {
                         type: 2, 
                         style: 4, 
                         label: '❌ Reprovar (72H)',
-                        custom_id: `REJECT_72H_${uniqueId}` // Reprova com 72h
+                        custom_id: `REJECT_72H_${uniqueId}` 
                     },
                     {
                         type: 2, 
                         style: 4, 
                         label: '❌ Reprovar (7 Dias)',
-                        custom_id: `REJECT_7D_${uniqueId}` // Reprova com 7 dias
+                        custom_id: `REJECT_7D_${uniqueId}` 
                     },
                 ]
             },
@@ -119,13 +126,13 @@ app.post('/api/discord-send', async (req, res) => {
                         type: 2, 
                         style: 4, 
                         label: '❌ Reprovar (30 Dias)',
-                        custom_id: `REJECT_30D_${uniqueId}` // Reprova com 30 dias
+                        custom_id: `REJECT_30D_${uniqueId}` 
                     },
                     {
                         type: 2, 
                         style: 4, 
                         label: '❌ Reprovar (PERM)',
-                        custom_id: `REJECT_PERM_${uniqueId}` // Reprova Permanente
+                        custom_id: `REJECT_PERM_${uniqueId}` 
                     }
                 ]
             }
@@ -158,9 +165,8 @@ app.post('/api/discord-send', async (req, res) => {
 });
 
 
-// ROTA DE INTERAÇÃO DO DISCORD (Mantida para Interações do Bot)
+// ROTA DE INTERAÇÃO DO DISCORD (Manter para interações de botão)
 app.post('/api/interactions', (req, res) => {
-    // Aqui vai a lógica para o Bot responder aos cliques nos botões
     res.status(200).send("OK");
 });
 
