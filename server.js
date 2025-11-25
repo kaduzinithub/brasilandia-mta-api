@@ -2,7 +2,7 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch'); 
-const { verifyKeyMiddleware } = require('discord-interactions'); // Middleware do Discord
+const { verifyKeyMiddleware } = require('discord-interactions');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -28,56 +28,55 @@ app.use((req, res, next) => {
 app.use(bodyParser.json());
 
 // ----------------------------------------------------
+// Função Auxiliar para Gerar o Embed Final (Aprovação/Reprovação)
+// ----------------------------------------------------
+const generatePayload = (isApproved, nickname, rpName, serial, motivoRejeicao, banDuration, staffName) => {
+    const color = isApproved ? 65280 : 16711680; // Verde ou Vermelho
+    let messageDescription;
+    let fields = [];
+
+    if (isApproved) {
+        messageDescription = `Parabéns, ${nickname}! Sua aplicação foi aceita. O seu personagem **${rpName}** foi aprovado e seu Serial MTA liberado.`;
+        fields.push({ name: 'ID RP Aprovado', value: rpName, inline: true });
+        fields.push({ name: 'Serial MTA', value: '```' + serial + '```', inline: false });
+        fields.push({ name: 'Instruções', value: 'Aguarde a liberação oficial no Discord. Seja bem-vindo à Brasilândia RP!', inline: false });
+    } else {
+        messageDescription = `Olá, ${nickname}. Após análise, sua aplicação foi **REPROVADA**.`;
+        fields.push({ name: 'Serial MTA', value: '```' + serial + '```', inline: false });
+        fields.push({ name: 'Motivo Detalhado', value: motivoRejeicao, inline: false });
+        fields.push({ name: 'Prazo/Penalidade', value: banDuration, inline: true });
+        fields.push({ name: 'Próxima Tentativa', value: (banDuration.includes('72')) ? 'Após o prazo de 72 horas.' : 'Entre em contato com a Staff após o prazo.', inline: true });
+    }
+
+    return {
+        username: 'Staff Control Panel | API',
+        avatar_url: isApproved ? 'https://i.imgur.com/vHq05sJ.png' : 'https://i.imgur.com/D4sT9uF.png', 
+        embeds: [{
+            title: isApproved ? '✅ NOVO CIDADÃO APROVADO: ' + rpName.toUpperCase() : '🚫 APLICAÇÃO REPROVADA',
+            description: messageDescription,
+            color: color,
+            timestamp: new Date().toISOString(),
+            fields: fields,
+            footer: {
+                text: `Decisão tomada por: ${staffName} | API Render`,
+            }
+        }]
+    };
+};
+
+// ----------------------------------------------------
 // 1. ROTA DE TESTE (Health Check)
 // ----------------------------------------------------
 app.get('/', (req, res) => {
-    res.send('API da Brasilândia RP - MTA está online e funcionando no Render! Interações do Discord prontas.');
+    res.send('API da Brasilândia RP - MTA está online e funcionando no Render! Botões interativos prontos.');
 });
 
 // ----------------------------------------------------
-// 2. ROTA DE FEEDBACK MANUAL (Painel de Staff - POST)
+// 2. ROTA DE FEEDBACK MANUAL (Mantida para o frontend antigo ou debug)
 // ----------------------------------------------------
 app.post('/api/feedback', async (req, res) => {
-    // Código de envio de Webhook final (já criado, permanece intacto)
     const { status, nickname, rpName, serial, motivoRejeicao, banDuration, staffName } = req.body;
     
-    // ... (Lógica de Webhook para aprovação/reprovação) ...
-    
-    // Código de geração de payload para reuso
-    const generatePayload = (isApproved, nickname, rpName, serial, motivoRejeicao, banDuration, staffName) => {
-        const color = isApproved ? 65280 : 16711680;
-        let messageDescription;
-        let fields = [];
-
-        if (isApproved) {
-            messageDescription = `Parabéns, ${nickname}! Sua aplicação foi aceita. O seu personagem **${rpName}** foi aprovado e seu Serial MTA liberado.`;
-            fields.push({ name: 'ID RP Aprovado', value: rpName, inline: true });
-            fields.push({ name: 'Serial MTA', value: '```' + serial + '```', inline: false });
-            fields.push({ name: 'Instruções', value: 'Aguarde a liberação oficial no Discord. Seja bem-vindo à Brasilândia RP!', inline: false });
-        } else {
-            messageDescription = `Olá, ${nickname}. Após análise, sua aplicação foi **REPROVADA**.`;
-            fields.push({ name: 'Serial MTA', value: '```' + serial + '```', inline: false });
-            fields.push({ name: 'Motivo Detalhado', value: motivoRejeicao, inline: false });
-            fields.push({ name: 'Prazo/Penalidade', value: banDuration, inline: true });
-            fields.push({ name: 'Próxima Tentativa', value: (banDuration === '72 Horas (WL)') ? 'Após o prazo de 72 horas.' : 'Entre em contato com a Staff após o prazo.', inline: true });
-        }
-
-        return {
-            username: 'Staff Control Panel | API',
-            avatar_url: isApproved ? 'https://i.imgur.com/vHq05sJ.png' : 'https://i.imgur.com/D4sT9uF.png', 
-            embeds: [{
-                title: isApproved ? '✅ NOVO CIDADÃO APROVADO: ' + rpName.toUpperCase() : '🚫 APLICAÇÃO REPROVADA',
-                description: messageDescription,
-                color: color,
-                timestamp: new Date().toISOString(),
-                fields: fields,
-                footer: {
-                    text: `Decisão tomada por: ${staffName} | API Render`,
-                }
-            }]
-        };
-    };
-
     const isApproved = status === 'Aprovado';
     const webhookUrl = isApproved ? process.env.APPROVED_WEBHOOK_URL : process.env.REJECTED_WEBHOOK_URL;
     
@@ -107,26 +106,83 @@ app.post('/api/feedback', async (req, res) => {
 
 
 // ----------------------------------------------------
-// 3. ROTA DE INTERAÇÕES (Discord Bot - Handshake e Botões)
+// 3. ROTA DE INTERAÇÕES (Discord Bot - Processamento de Botões)
 // ----------------------------------------------------
 app.post('/interactions', verifyKeyMiddleware(DISCORD_PUBLIC_KEY), async (req, res) => {
     const interaction = req.body;
     
-    // 1. HANDSHAKE (Ping/Pong) para o Discord Developers Portal
+    // 1. HANDSHAKE (Ping/Pong)
     if (interaction.type === 1) { // PING type
         return res.send({ type: 1 }); // Responde com PONG type
     }
     
-    // 2. LÓGICA FUTURA PARA CLIQUES DE BOTÃO (Interaction Type 3: MESSAGE_COMPONENT)
+    // 2. LÓGICA PARA CLIQUES DE BOTÃO (Interaction Type 3: MESSAGE_COMPONENT)
     if (interaction.type === 3) { 
-        // Esta é a parte que desenvolveremos na próxima etapa
-        return res.send({
-            type: 4, // Resposta simples: Edita a mensagem original
-            data: {
-                content: 'Interação recebida! A lógica dos botões será implementada em breve.',
-                flags: 64, // Ephemeral (só quem clicou vê)
-            },
-        });
+        const { custom_id, member } = interaction.data;
+        const [action, nickname, rpName, serial, staffName, motivoRejeicao, banDuration] = custom_id.split('_');
+        
+        const isApproved = action === 'APPROVE';
+        const staffExecutor = member.user.username; // Pega o nome do staff que clicou no botão
+        
+        // Determina a URL do Webhook de destino
+        const webhookUrl = isApproved ? process.env.APPROVED_WEBHOOK_URL : process.env.REJECTED_WEBHOOK_URL;
+        
+        if (!webhookUrl) {
+            console.error('Webhook URL não configurada.');
+            return res.send({ type: 4, data: { content: 'Erro: Webhook de feedback não configurado no servidor.', flags: 64 } });
+        }
+
+        // --------------------------------------------------------
+        // A. Envio do Embed Final para o Canal de Feedback
+        // --------------------------------------------------------
+        try {
+            const finalPayload = generatePayload(
+                isApproved, 
+                nickname, 
+                rpName, 
+                serial, 
+                motivoRejeicao || 'N/A', // Usamos N/A se o motivo não for fornecido no custom_id (caso de Aprovação)
+                banDuration || 'N/A',
+                staffExecutor // O staff que clicou é o responsável
+            );
+
+            await fetch(webhookUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(finalPayload),
+            });
+            
+            // --------------------------------------------------------
+            // B. Edição da Mensagem Original (Remove os Botões)
+            // --------------------------------------------------------
+            const confirmationMessage = isApproved 
+                ? `✅ **APROVADO por @${staffExecutor}**. Feedback final enviado.`
+                : `❌ **REPROVADO por @${staffExecutor}**. Feedback final enviado.`;
+                
+            const originalEmbed = interaction.message.embeds[0];
+            originalEmbed.color = isApproved ? 65280 : 16711680; // Altera a cor
+            originalEmbed.footer.text = `Decisão tomada por: ${staffExecutor} (Via Botão)`;
+            
+            // Resposta para editar a mensagem original (remove os componentes/botões)
+            return res.send({
+                type: 7, // UPDATE_MESSAGE
+                data: {
+                    content: confirmationMessage,
+                    embeds: [originalEmbed],
+                    components: [] // Remove os botões!
+                },
+            });
+
+        } catch (error) {
+            console.error('Erro durante o processamento do botão:', error);
+            return res.send({
+                type: 4, 
+                data: {
+                    content: 'Erro interno ao processar a decisão.',
+                    flags: 64, // Ephemeral (só quem clicou vê)
+                },
+            });
+        }
     }
 
     return res.status(400).end();
