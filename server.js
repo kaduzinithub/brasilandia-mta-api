@@ -1,195 +1,146 @@
-// server.js - Backend da Brasilândia RP - MTA com Interações do Discord
-const express = require('express');
-const bodyParser = require('body-parser');
-const fetch = require('node-fetch'); 
-const { verifyKeyMiddleware } = require('discord-interactions');
+// server.js
 
+const express = require('express');
+const axios = require('axios');
+const path = require('path');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Variáveis de ambiente (necessárias no Render):
-// DISCORD_PUBLIC_KEY, APPROVED_WEBHOOK_URL, REJECTED_WEBHOOK_URL
-const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
+// Configuração para processar JSON e URLs
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// ----------------------------------------------------
-// Middleware para Habilitar CORS (Para o Painel de Staff)
-// ----------------------------------------------------
+// **RESOLVENDO O PROBLEMA DO CORS**
+// Permitir o acesso do seu domínio para todas as requisições
 app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*'); 
-    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+    // Substitua 'http://brasilandiarp.wuaze.com' pelo seu domínio real (e verifique HTTPS se aplicável)
+    const allowedOrigins = ['http://brasilandiarp.wuaze.com', 'http://localhost:8080']; 
+    const origin = req.headers.origin;
+
+    if (allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+    
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Credentials', true);
+    
+    // Lida com preflight requests (OPTIONS)
     if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
     }
+
     next();
 });
 
-// Middleware para JSON (antes das rotas)
-app.use(bodyParser.json());
-
 // ----------------------------------------------------
-// Função Auxiliar para Gerar o Embed Final (Aprovação/Reprovação)
-// ----------------------------------------------------
-const generatePayload = (isApproved, nickname, rpName, serial, motivoRejeicao, banDuration, staffName) => {
-    const color = isApproved ? 65280 : 16711680; // Verde ou Vermelho
-    let messageDescription;
-    let fields = [];
-
-    if (isApproved) {
-        messageDescription = `Parabéns, ${nickname}! Sua aplicação foi aceita. O seu personagem **${rpName}** foi aprovado e seu Serial MTA liberado.`;
-        fields.push({ name: 'ID RP Aprovado', value: rpName, inline: true });
-        fields.push({ name: 'Serial MTA', value: '```' + serial + '```', inline: false });
-        fields.push({ name: 'Instruções', value: 'Aguarde a liberação oficial no Discord. Seja bem-vindo à Brasilândia RP!', inline: false });
-    } else {
-        messageDescription = `Olá, ${nickname}. Após análise, sua aplicação foi **REPROVADA**.`;
-        fields.push({ name: 'Serial MTA', value: '```' + serial + '```', inline: false });
-        fields.push({ name: 'Motivo Detalhado', value: motivoRejeicao, inline: false });
-        fields.push({ name: 'Prazo/Penalidade', value: banDuration, inline: true });
-        fields.push({ name: 'Próxima Tentativa', value: (banDuration.includes('72')) ? 'Após o prazo de 72 horas.' : 'Entre em contato com a Staff após o prazo.', inline: true });
-    }
-
-    return {
-        username: 'Staff Control Panel | API',
-        avatar_url: isApproved ? 'https://i.imgur.com/vHq05sJ.png' : 'https://i.imgur.com/D4sT9uF.png', 
-        embeds: [{
-            title: isApproved ? '✅ NOVO CIDADÃO APROVADO: ' + rpName.toUpperCase() : '🚫 APLICAÇÃO REPROVADA',
-            description: messageDescription,
-            color: color,
-            timestamp: new Date().toISOString(),
-            fields: fields,
-            footer: {
-                text: `Decisão tomada por: ${staffName} | API Render`,
-            }
-        }]
-    };
-};
-
-// ----------------------------------------------------
-// 1. ROTA DE TESTE (Health Check)
-// ----------------------------------------------------
+// ROTAS ESTÁTICAS (para servir HTML, CSS e JS do seu site)
+// A pasta 'public' deve conter index.html, style.css e a subpasta 'pages'
+app.use(express.static(path.join(__dirname, 'public'))); 
 app.get('/', (req, res) => {
-    res.send('API da Brasilândia RP - MTA está online e funcionando no Render! Botões interativos prontos.');
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
+// ----------------------------------------------------
 
-// ----------------------------------------------------
-// 2. ROTA DE FEEDBACK MANUAL (Mantida para o frontend antigo ou debug)
-// ----------------------------------------------------
-app.post('/api/feedback', async (req, res) => {
-    const { status, nickname, rpName, serial, motivoRejeicao, banDuration, staffName } = req.body;
+
+// ROTA PRINCIPAL: RECEBER DADOS DO STAFF E ENVIAR AO DISCORD
+app.post('/api/discord-send', async (req, res) => {
     
-    const isApproved = status === 'Aprovado';
-    const webhookUrl = isApproved ? process.env.APPROVED_WEBHOOK_URL : process.env.REJECTED_WEBHOOK_URL;
+    // **TOKEN DO BOT: Pegando da Variável de Ambiente (Recomendado)**
+    const BOT_TOKEN = process.env.BOT_TOKEN; 
     
-    if (!webhookUrl) {
-        return res.status(500).send({ error: 'Erro de configuração do servidor (Webhooks).' });
+    // Se você não conseguir configurar a variável de ambiente no Render, 
+    // use a linha abaixo (MENOS SEGURA):
+    // const BOT_TOKEN = 'MTQ0Mjk2NDE3ODY3MDE5MDcwNQ.G9mRe_.VrS0G7QY32HNfWHd0xU47uvXEAPxYm-pQEu5aE'; 
+
+    const { staffName, channelId, nickname, rpName, serial, motivoRejeicao, banDuration } = req.body;
+    
+    // Validação básica do Channel ID
+    if (!channelId || isNaN(channelId) || channelId.length < 18) {
+        return res.status(400).json({ success: false, message: "ID do Canal inválido ou não fornecido." });
     }
+
+    const DISCORD_API_URL = `https://discord.com/api/v10/channels/${channelId}/messages`;
+
+    // PAYLOAD DA MENSAGEM (O mesmo que estava no HTML)
+    const payload = {
+        content: `🚨 **NOVA AVALIAÇÃO DE WL** - Requer Decisão da Staff 🚨`,
+        embeds: [{
+            title: `Aplicação WL Pendente: ${rpName.toUpperCase()}`,
+            description: `O Staff **@${staffName}** submeteu uma nova aplicação para avaliação.`,
+            color: 16776960, // Amarelo (Pendente)
+            fields: [
+                { name: 'Discord', value: nickname, inline: true },
+                { name: 'Serial MTA', value: '```' + serial + '```', inline: false },
+                { name: 'Motivo Padrão de Reprovação', value: motivoRejeicao || 'Motivo a ser preenchido pela Staff.', inline: false },
+                { name: 'Punição Padrão', value: banDuration, inline: true }
+            ],
+            footer: {
+                text: `Submetido por: ${staffName}`
+            },
+            timestamp: new Date().toISOString()
+        }],
+        
+        components: [
+            {
+                type: 1, 
+                components: [
+                    {
+                        type: 2, 
+                        style: 3, 
+                        label: '✅ APROVAR WL',
+                        custom_id: `APPROVE_${nickname}_${rpName}_${serial}_${staffName}`
+                    },
+                    {
+                        type: 2, 
+                        style: 4, 
+                        label: '❌ REPROVAR WL',
+                        custom_id: `REJECT_${nickname}_${rpName}_${serial}_${staffName}_${motivoRejeicao}_${banDuration}`
+                    }
+                ]
+            }
+        ]
+    };
 
     try {
-        const payload = generatePayload(isApproved, nickname, rpName, serial, motivoRejeicao, banDuration, staffName);
-        
-        const response = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
+        const discordResponse = await axios.post(DISCORD_API_URL, payload, {
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bot ${BOT_TOKEN}` 
+            }
         });
 
-        if (response.ok) {
-            res.status(200).send({ message: 'Feedback enviado com sucesso!' });
-        } else {
-            res.status(500).send({ error: 'Erro ao enviar Webhook do Discord (API).' });
-        }
+        // Retorna sucesso para o frontend
+        res.status(200).json({ 
+            success: true, 
+            message: `Mensagem com botões enviada para o canal ${channelId}!` 
+        });
+
     } catch (error) {
-        console.error('Erro de conexão ou servidor:', error);
-        res.status(500).send({ error: 'Erro interno do servidor (Conexão).' });
+        console.error('Erro na API do Discord:', error.response ? error.response.data : error.message);
+        
+        const discordError = error.response ? error.response.data.message : 'Erro de rede ou Bot offline.';
+        
+        // Retorna erro detalhado para o frontend
+        res.status(500).json({ 
+            success: false, 
+            message: `Erro ao enviar ao Discord: ${discordError}` 
+        });
     }
 });
 
 
-// ----------------------------------------------------
-// 3. ROTA DE INTERAÇÕES (Discord Bot - Processamento de Botões)
-// ----------------------------------------------------
-app.post('/interactions', verifyKeyMiddleware(DISCORD_PUBLIC_KEY), async (req, res) => {
-    const interaction = req.body;
-    
-    // 1. HANDSHAKE (Ping/Pong)
-    if (interaction.type === 1) { // PING type
-        return res.send({ type: 1 }); // Responde com PONG type
-    }
-    
-    // 2. LÓGICA PARA CLIQUES DE BOTÃO (Interaction Type 3: MESSAGE_COMPONENT)
-    if (interaction.type === 3) { 
-        const { custom_id, member } = interaction.data;
-        const [action, nickname, rpName, serial, staffName, motivoRejeicao, banDuration] = custom_id.split('_');
-        
-        const isApproved = action === 'APPROVE';
-        const staffExecutor = member.user.username; // Pega o nome do staff que clicou no botão
-        
-        // Determina a URL do Webhook de destino
-        const webhookUrl = isApproved ? process.env.APPROVED_WEBHOOK_URL : process.env.REJECTED_WEBHOOK_URL;
-        
-        if (!webhookUrl) {
-            console.error('Webhook URL não configurada.');
-            return res.send({ type: 4, data: { content: 'Erro: Webhook de feedback não configurado no servidor.', flags: 64 } });
-        }
-
-        // --------------------------------------------------------
-        // A. Envio do Embed Final para o Canal de Feedback
-        // --------------------------------------------------------
-        try {
-            const finalPayload = generatePayload(
-                isApproved, 
-                nickname, 
-                rpName, 
-                serial, 
-                motivoRejeicao || 'N/A', // Usamos N/A se o motivo não for fornecido no custom_id (caso de Aprovação)
-                banDuration || 'N/A',
-                staffExecutor // O staff que clicou é o responsável
-            );
-
-            await fetch(webhookUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(finalPayload),
-            });
-            
-            // --------------------------------------------------------
-            // B. Edição da Mensagem Original (Remove os Botões)
-            // --------------------------------------------------------
-            const confirmationMessage = isApproved 
-                ? `✅ **APROVADO por @${staffExecutor}**. Feedback final enviado.`
-                : `❌ **REPROVADO por @${staffExecutor}**. Feedback final enviado.`;
-                
-            const originalEmbed = interaction.message.embeds[0];
-            originalEmbed.color = isApproved ? 65280 : 16711680; // Altera a cor
-            originalEmbed.footer.text = `Decisão tomada por: ${staffExecutor} (Via Botão)`;
-            
-            // Resposta para editar a mensagem original (remove os componentes/botões)
-            return res.send({
-                type: 7, // UPDATE_MESSAGE
-                data: {
-                    content: confirmationMessage,
-                    embeds: [originalEmbed],
-                    components: [] // Remove os botões!
-                },
-            });
-
-        } catch (error) {
-            console.error('Erro durante o processamento do botão:', error);
-            return res.send({
-                type: 4, 
-                data: {
-                    content: 'Erro interno ao processar a decisão.',
-                    flags: 64, // Ephemeral (só quem clicou vê)
-                },
-            });
-        }
-    }
-
-    return res.status(400).end();
+// ROTA DE INTERAÇÃO DO DISCORD (OBRIGATÓRIA PARA BOTÕES)
+// *** VOCÊ PRECISA DE UM INTERACTION HANDLER AQUI ***
+// Caso você não tenha um, ignore por enquanto, mas lembre-se que 
+// os botões não funcionarão sem essa rota.
+app.post('/api/interactions', (req, res) => {
+    // ... Aqui vai a lógica para verificar o Signature e responder à interação ...
+    // ... Isso é mais complexo e requer o 'discord-interactions' package ...
+    res.status(200).send("OK");
 });
 
 
-// Inicia o Servidor
 app.listen(port, () => {
     console.log(`Servidor rodando na porta ${port}`);
 });
