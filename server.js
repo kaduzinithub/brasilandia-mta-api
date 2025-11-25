@@ -1,4 +1,4 @@
-// server.js
+// server.js - CORRIGIDO
 
 const express = require('express');
 const axios = require('axios');
@@ -12,9 +12,8 @@ app.use(express.urlencoded({ extended: true }));
 
 // **RESOLVENDO O PROBLEMA DO CORS**
 app.use((req, res, next) => {
-    // Adicione AQUI todos os domínios que podem acessar esta API (incluindo o seu frontend)
-    // Se o seu site usa HTTPS, mude 'http' para 'https'
-    const allowedOrigins = ['http://brasilandiarp.wuaze.com', 'http://localhost:8080', 'https://brasilandiarp.wuaze.com']; 
+    // Adicione AQUI todos os domínios que podem acessar esta API 
+    const allowedOrigins = ['http://brasilandiarp.wuaze.com', 'https://brasilandiarp.wuaze.com', 'http://localhost:8080']; 
     const origin = req.headers.origin;
 
     if (allowedOrigins.includes(origin)) {
@@ -25,7 +24,6 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     res.setHeader('Access-Control-Allow-Credentials', true);
     
-    // Lida com preflight requests (OPTIONS)
     if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
     }
@@ -37,13 +35,15 @@ app.use((req, res, next) => {
 // ROTA PRINCIPAL: RECEBER DADOS DO STAFF E ENVIAR AO DISCORD
 app.post('/api/discord-send', async (req, res) => {
     
-    // **TOKEN DO BOT: Pegando da Variável de Ambiente**
     const BOT_TOKEN = process.env.BOT_TOKEN; 
     
     if (!BOT_TOKEN) {
         console.error("BOT_TOKEN não está definido nas variáveis de ambiente!");
         return res.status(500).json({ success: false, message: "Erro de configuração: Token do Bot não encontrado no servidor." });
     }
+
+    // Usando uma simples hash (ex: timestamp) para o custom_id
+    const uniqueId = Date.now().toString(36); 
 
     const { staffName, channelId, nickname, rpName, serial, motivoRejeicao, banDuration } = req.body;
     
@@ -73,7 +73,7 @@ app.post('/api/discord-send', async (req, res) => {
             timestamp: new Date().toISOString()
         }],
         
-        // BOTÕES DE INTERAÇÃO
+        // BOTÕES DE INTERAÇÃO - Custom_ID simplificado
         components: [
             {
                 type: 1, 
@@ -82,13 +82,15 @@ app.post('/api/discord-send', async (req, res) => {
                         type: 2, 
                         style: 3, 
                         label: '✅ APROVAR WL',
-                        custom_id: `APPROVE_${nickname}_${rpName}_${serial}_${staffName}`
+                        // Custom_ID SIMPLIFICADO: Envia o tipo e o ID ÚNICO
+                        custom_id: `APPROVE_${uniqueId}` 
                     },
                     {
                         type: 2, 
                         style: 4, 
                         label: '❌ REPROVAR WL',
-                        custom_id: `REJECT_${nickname}_${rpName}_${serial}_${staffName}_${motivoRejeicao}_${banDuration}`
+                        // Custom_ID SIMPLIFICADO: Envia o tipo e o ID ÚNICO
+                        custom_id: `REJECT_${uniqueId}` 
                     }
                 ]
             }
@@ -112,9 +114,9 @@ app.post('/api/discord-send', async (req, res) => {
     } catch (error) {
         console.error('Erro na API do Discord:', error.response ? error.response.data : error.message);
         
+        // Se o erro for "Invalid Form Body", significa que algo no payload (o JSON) está errado.
         const discordError = error.response ? error.response.data.message : 'Erro de rede ou Bot offline.';
         
-        // Retorna erro detalhado para o frontend
         res.status(500).json({ 
             success: false, 
             message: `Erro ao enviar ao Discord: ${discordError}` 
@@ -123,10 +125,8 @@ app.post('/api/discord-send', async (req, res) => {
 });
 
 
-// ROTA DE INTERAÇÃO DO DISCORD (OPCIONAL, mas necessária para botões)
+// ROTA DE INTERAÇÃO DO DISCORD (APENAS PARA MANTER O CODIGO COMPLETO)
 app.post('/api/interactions', (req, res) => {
-    // Esta rota é onde o Discord enviaria os dados quando um botão é clicado.
-    // Se você não tem um Interaction Handler, esta rota é apenas um placeholder.
     res.status(200).send("OK");
 });
 
