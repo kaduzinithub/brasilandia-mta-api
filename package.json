@@ -1,16 +1,13 @@
 {
-  "name": "br-rp-webhook-api",
+  "name": "brasilandia-mta-api",
   "version": "1.0.0",
-  "description": "API para processar interações de botões da Whitelist.",
+  "description": "Backend para envio de formulários para o Discord.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "body-parser": "^1.20.2",
-    "express": "^4.19.2",
-    "node-fetch": "^2.7.0",
-    "dotenv": "^16.4.5",
-    "discord-interactions": "^3.4.0"
+    "axios": "^1.6.8",
+    "express": "^4.19.2"
   }
 }
