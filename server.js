@@ -1,19 +1,24 @@
-// server.js - CORRIGIDO
+// server.js
 
 const express = require('express');
 const axios = require('axios');
 const path = require('path');
 const app = express();
-const port = process.env.PORT || 3000;
+// O Render define a porta automaticamente:
+const port = process.env.PORT || 3000; 
 
-// Configuração para processar JSON e URLs
+// --- Configuração Básica ---
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// **RESOLVENDO O PROBLEMA DO CORS**
+// --- RESOLVENDO O CORS ---
 app.use((req, res, next) => {
-    // Adicione AQUI todos os domínios que podem acessar esta API 
-    const allowedOrigins = ['http://brasilandiarp.wuaze.com', 'https://brasilandiarp.wuaze.com', 'http://localhost:8080']; 
+    // Domínios que podem acessar esta API
+    const allowedOrigins = [
+        'http://brasilandiarp.wuaze.com', 
+        'https://brasilandiarp.wuaze.com', 
+        'http://localhost:8080'
+    ]; 
     const origin = req.headers.origin;
 
     if (allowedOrigins.includes(origin)) {
@@ -24,6 +29,7 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     res.setHeader('Access-Control-Allow-Credentials', true);
     
+    // Lida com preflight requests
     if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
     }
@@ -31,30 +37,37 @@ app.use((req, res, next) => {
     next();
 });
 
-// ----------------------------------------------------
-// ROTA PRINCIPAL: RECEBER DADOS DO STAFF E ENVIAR AO DISCORD
+// --- VARIÁVEIS DE DISCORD FIXAS ---
+// O canal do formulário é o canal de avaliação (variável)
+const REJECT_CHANNEL_ID = '1435430452318961764'; // Canal fixo de Reprovados
+const BASE_DISCORD_API_URL = 'https://discord.com/api/v10'; 
+
+// --- ROTA PRINCIPAL: POST para o Discord ---
 app.post('/api/discord-send', async (req, res) => {
     
     const BOT_TOKEN = process.env.BOT_TOKEN; 
     
     if (!BOT_TOKEN) {
-        console.error("BOT_TOKEN não está definido nas variáveis de ambiente!");
-        return res.status(500).json({ success: false, message: "Erro de configuração: Token do Bot não encontrado no servidor." });
+        return res.status(500).json({ 
+            success: false, 
+            message: "Erro de configuração: Token do Bot não encontrado no servidor (Variável BOT_TOKEN)." 
+        });
     }
 
-    // Usando uma simples hash (ex: timestamp) para o custom_id
     const uniqueId = Date.now().toString(36); 
-
     const { staffName, channelId, nickname, rpName, serial, motivoRejeicao, banDuration } = req.body;
     
-    // Validação básica do Channel ID
+    // Validação do ID do Canal de Avaliação
     if (!channelId || isNaN(channelId) || channelId.length < 18) {
-        return res.status(400).json({ success: false, message: "ID do Canal inválido ou não fornecido." });
+        return res.status(400).json({ 
+            success: false, 
+            message: "ID do Canal de Avaliação inválido ou não fornecido." 
+        });
     }
 
-    const DISCORD_API_URL = `https://discord.com/api/v10/channels/${channelId}/messages`;
+    const DISCORD_API_URL = `${BASE_DISCORD_API_URL}/channels/${channelId}/messages`;
 
-    // PAYLOAD DA MENSAGEM
+    // --- PAYLOAD (Mensagem com Embed e Botões) ---
     const payload = {
         content: `🚨 **NOVA AVALIAÇÃO DE WL** - Requer Decisão da Staff 🚨`,
         embeds: [{
@@ -68,13 +81,13 @@ app.post('/api/discord-send', async (req, res) => {
                 { name: 'Punição Padrão', value: banDuration, inline: true }
             ],
             footer: {
-                text: `Submetido por: ${staffName}`
+                text: `Submetido por: ${staffName} | ID Único: ${uniqueId}`
             },
             timestamp: new Date().toISOString()
         }],
         
-        // BOTÕES DE INTERAÇÃO - Custom_ID simplificado
         components: [
+            // Linha 1: APROVAR e REPROVAR (Menu)
             {
                 type: 1, 
                 components: [
@@ -82,15 +95,37 @@ app.post('/api/discord-send', async (req, res) => {
                         type: 2, 
                         style: 3, 
                         label: '✅ APROVAR WL',
-                        // Custom_ID SIMPLIFICADO: Envia o tipo e o ID ÚNICO
                         custom_id: `APPROVE_${uniqueId}` 
                     },
                     {
                         type: 2, 
                         style: 4, 
-                        label: '❌ REPROVAR WL',
-                        // Custom_ID SIMPLIFICADO: Envia o tipo e o ID ÚNICO
-                        custom_id: `REJECT_${uniqueId}` 
+                        label: '❌ Reprovar (72H)',
+                        custom_id: `REJECT_72H_${uniqueId}` // Reprova com 72h
+                    },
+                    {
+                        type: 2, 
+                        style: 4, 
+                        label: '❌ Reprovar (7 Dias)',
+                        custom_id: `REJECT_7D_${uniqueId}` // Reprova com 7 dias
+                    },
+                ]
+            },
+            // Linha 2: Mais opções de reprovação
+             {
+                type: 1, 
+                components: [
+                    {
+                        type: 2, 
+                        style: 4, 
+                        label: '❌ Reprovar (30 Dias)',
+                        custom_id: `REJECT_30D_${uniqueId}` // Reprova com 30 dias
+                    },
+                    {
+                        type: 2, 
+                        style: 4, 
+                        label: '❌ Reprovar (PERM)',
+                        custom_id: `REJECT_PERM_${uniqueId}` // Reprova Permanente
                     }
                 ]
             }
@@ -105,16 +140,14 @@ app.post('/api/discord-send', async (req, res) => {
             }
         });
 
-        // Retorna sucesso para o frontend
         res.status(200).json({ 
             success: true, 
-            message: `Mensagem com botões enviada para o canal ${channelId}!` 
+            message: `Mensagem enviada! O staff pode prosseguir com a aprovação/reprovação.` 
         });
 
     } catch (error) {
         console.error('Erro na API do Discord:', error.response ? error.response.data : error.message);
         
-        // Se o erro for "Invalid Form Body", significa que algo no payload (o JSON) está errado.
         const discordError = error.response ? error.response.data.message : 'Erro de rede ou Bot offline.';
         
         res.status(500).json({ 
@@ -125,8 +158,9 @@ app.post('/api/discord-send', async (req, res) => {
 });
 
 
-// ROTA DE INTERAÇÃO DO DISCORD (APENAS PARA MANTER O CODIGO COMPLETO)
+// ROTA DE INTERAÇÃO DO DISCORD (Mantida para Interações do Bot)
 app.post('/api/interactions', (req, res) => {
+    // Aqui vai a lógica para o Bot responder aos cliques nos botões
     res.status(200).send("OK");
 });
 
