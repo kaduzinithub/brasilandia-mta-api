@@ -11,17 +11,17 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // **RESOLVENDO O PROBLEMA DO CORS**
-// Permitir o acesso do seu domínio para todas as requisições
 app.use((req, res, next) => {
-    // Substitua 'http://brasilandiarp.wuaze.com' pelo seu domínio real (e verifique HTTPS se aplicável)
-    const allowedOrigins = ['http://brasilandiarp.wuaze.com', 'http://localhost:8080']; 
+    // Adicione AQUI todos os domínios que podem acessar esta API (incluindo o seu frontend)
+    // Se o seu site usa HTTPS, mude 'http' para 'https'
+    const allowedOrigins = ['http://brasilandiarp.wuaze.com', 'http://localhost:8080', 'https://brasilandiarp.wuaze.com']; 
     const origin = req.headers.origin;
 
     if (allowedOrigins.includes(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
     }
     
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     res.setHeader('Access-Control-Allow-Credentials', true);
     
@@ -34,24 +34,16 @@ app.use((req, res, next) => {
 });
 
 // ----------------------------------------------------
-// ROTAS ESTÁTICAS (para servir HTML, CSS e JS do seu site)
-// A pasta 'public' deve conter index.html, style.css e a subpasta 'pages'
-app.use(express.static(path.join(__dirname, 'public'))); 
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-// ----------------------------------------------------
-
-
 // ROTA PRINCIPAL: RECEBER DADOS DO STAFF E ENVIAR AO DISCORD
 app.post('/api/discord-send', async (req, res) => {
     
-    // **TOKEN DO BOT: Pegando da Variável de Ambiente (Recomendado)**
+    // **TOKEN DO BOT: Pegando da Variável de Ambiente**
     const BOT_TOKEN = process.env.BOT_TOKEN; 
     
-    // Se você não conseguir configurar a variável de ambiente no Render, 
-    // use a linha abaixo (MENOS SEGURA):
-    // const BOT_TOKEN = 'MTQ0Mjk2NDE3ODY3MDE5MDcwNQ.G9mRe_.VrS0G7QY32HNfWHd0xU47uvXEAPxYm-pQEu5aE'; 
+    if (!BOT_TOKEN) {
+        console.error("BOT_TOKEN não está definido nas variáveis de ambiente!");
+        return res.status(500).json({ success: false, message: "Erro de configuração: Token do Bot não encontrado no servidor." });
+    }
 
     const { staffName, channelId, nickname, rpName, serial, motivoRejeicao, banDuration } = req.body;
     
@@ -62,7 +54,7 @@ app.post('/api/discord-send', async (req, res) => {
 
     const DISCORD_API_URL = `https://discord.com/api/v10/channels/${channelId}/messages`;
 
-    // PAYLOAD DA MENSAGEM (O mesmo que estava no HTML)
+    // PAYLOAD DA MENSAGEM
     const payload = {
         content: `🚨 **NOVA AVALIAÇÃO DE WL** - Requer Decisão da Staff 🚨`,
         embeds: [{
@@ -81,6 +73,7 @@ app.post('/api/discord-send', async (req, res) => {
             timestamp: new Date().toISOString()
         }],
         
+        // BOTÕES DE INTERAÇÃO
         components: [
             {
                 type: 1, 
@@ -103,7 +96,7 @@ app.post('/api/discord-send', async (req, res) => {
     };
 
     try {
-        const discordResponse = await axios.post(DISCORD_API_URL, payload, {
+        await axios.post(DISCORD_API_URL, payload, {
             headers: { 
                 'Content-Type': 'application/json',
                 'Authorization': `Bot ${BOT_TOKEN}` 
@@ -130,13 +123,10 @@ app.post('/api/discord-send', async (req, res) => {
 });
 
 
-// ROTA DE INTERAÇÃO DO DISCORD (OBRIGATÓRIA PARA BOTÕES)
-// *** VOCÊ PRECISA DE UM INTERACTION HANDLER AQUI ***
-// Caso você não tenha um, ignore por enquanto, mas lembre-se que 
-// os botões não funcionarão sem essa rota.
+// ROTA DE INTERAÇÃO DO DISCORD (OPCIONAL, mas necessária para botões)
 app.post('/api/interactions', (req, res) => {
-    // ... Aqui vai a lógica para verificar o Signature e responder à interação ...
-    // ... Isso é mais complexo e requer o 'discord-interactions' package ...
+    // Esta rota é onde o Discord enviaria os dados quando um botão é clicado.
+    // Se você não tem um Interaction Handler, esta rota é apenas um placeholder.
     res.status(200).send("OK");
 });
 
