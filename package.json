@@ -11,6 +11,6 @@
     "express": "^4.19.2",
     "node-fetch": "^2.7.0",
     "dotenv": "^16.4.5",
-    "discord-interactions": "^3.4.0"  <-- ADICIONADO AQUI
+    "discord-interactions": "^3.4.0"
   }
 }
