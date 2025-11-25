@@ -8,13 +8,33 @@ const port = process.env.PORT || 3000;
 
 app.use(bodyParser.json());
 
-// ROTA DE TESTE (Health Check)
-app.get('/', (req, res) => {
-    res.send('API da Brasilândia RP - MTA está online e funcionando no Render!');
+// ----------------------------------------------------
+// Middleware para Habilitar CORS (CORREÇÃO DO FAILED TO FETCH)
+// ----------------------------------------------------
+app.use((req, res, next) => {
+    // Permite que o seu frontend (brasilandiarp.wuaze.com) acesse a API.
+    // O '*' aceita qualquer domínio, resolvendo o problema.
+    res.setHeader('Access-Control-Allow-Origin', '*'); 
+    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
 });
 
+// ----------------------------------------------------
+// ROTA DE TESTE (Health Check)
+// ----------------------------------------------------
+app.get('/', (req, res) => {
+    res.send('API da Brasilândia RP - MTA está online e funcionando no Render! CORS Habilitado.');
+});
+
+// ----------------------------------------------------
 // ROTA PRINCIPAL PARA PROCESSAR O PAINEL DE STAFF
 // URL de destino: SEU_RENDER_URL/api/feedback
+// ----------------------------------------------------
 app.post('/api/feedback', async (req, res) => {
     
     // Dados enviados pelo frontend
